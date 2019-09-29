@@ -62,7 +62,7 @@ class Engine {
         ),
       );
     });
-    this._toEnterSystems = this._systemsInOrder;
+    this._toEnterSystems = [...this._systemsInOrder];
     this._toExitSystems = [];
     this._toUpdateEntitiesBySystemSignature = new Map();
     this._toAddEntitiesBySystemSignature = new Map();
@@ -364,14 +364,6 @@ class Engine {
 
   getSystemOfType(systemType: string): System | undefined {
     return this._systemsInOrder.find(system => system.type === systemType);
-  }
-
-  isSystemOfTypeActive(systemType: string): boolean {
-    const system = this.getSystemOfType(systemType);
-    if (system === undefined) {
-      return false;
-    }
-    return system.isActive;
   }
 
   activateSystemOfType(systemType: string): void {

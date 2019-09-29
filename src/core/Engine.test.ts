@@ -137,35 +137,37 @@ test('add component to entity', () => {
   const eventBus = new MockEventBus();
   const engine = new Engine([MockComponent.type], [MockSystem], eventBus);
 
-  const entity = engine.createEntity();
-  engine.addComponentToEntity(new MockComponent(), entity);
-
-  expect(engine.hasComponentOnEntityOfType('foo', entity)).toBe(false);
-  expect(engine.hasComponentOnEntityOfType(MockComponent.type, entity)).toBe(
-    true,
-  );
-
-  expect(engine.getComponentOnEntityOfType('foo', entity)).toBe(undefined);
-  const mockComponent = engine.getComponentOnEntityOfType(
-    MockComponent.type,
-    entity,
-  );
-  expect(mockComponent).not.toBe(undefined);
-  if (mockComponent !== undefined) {
-    expect(mockComponent.type).toBe(MockComponent.type);
-  }
-
   const system = engine.getSystemOfType(MockSystem.type) as
     | MockSystem
     | undefined;
 
   expect(system).not.toBe(undefined);
+
+  const entity = engine.createEntity();
+
   if (system !== undefined) {
     expect(system.update.mock.calls.length).toBe(0);
     expect(system.enter.mock.calls.length).toBe(0);
     expect(system.exit.mock.calls.length).toBe(0);
     expect(system.add.mock.calls.length).toBe(0);
     expect(system.remove.mock.calls.length).toBe(0);
+
+    engine.addComponentToEntity(new MockComponent(), entity);
+
+    expect(engine.hasComponentOnEntityOfType('foo', entity)).toBe(false);
+    expect(engine.hasComponentOnEntityOfType(MockComponent.type, entity)).toBe(
+      true,
+    );
+
+    expect(engine.getComponentOnEntityOfType('foo', entity)).toBe(undefined);
+    const mockComponent = engine.getComponentOnEntityOfType(
+      MockComponent.type,
+      entity,
+    );
+    expect(mockComponent).not.toBe(undefined);
+    if (mockComponent !== undefined) {
+      expect(mockComponent.type).toBe(MockComponent.type);
+    }
 
     new Array(10).fill(null).forEach(() => {
       engine.update(1);
@@ -184,29 +186,31 @@ test('remove component from entity', () => {
   const engine = new Engine([MockComponent.type], [MockSystem], eventBus);
 
   const entity = engine.createEntity();
-  engine.addComponentToEntity(new MockComponent(), entity);
-  engine.removeComponentFromEntityOfType(MockComponent.type, entity);
-
-  expect(engine.hasComponentOnEntityOfType('foo', entity)).toBe(false);
-  expect(engine.hasComponentOnEntityOfType(MockComponent.type, entity)).toBe(
-    false,
-  );
-
-  expect(engine.getComponentOnEntityOfType(MockComponent.type, entity)).toBe(
-    undefined,
-  );
 
   const system = engine.getSystemOfType(MockSystem.type) as
     | MockSystem
     | undefined;
 
   expect(system).not.toBe(undefined);
+
   if (system !== undefined) {
     expect(system.update.mock.calls.length).toBe(0);
     expect(system.enter.mock.calls.length).toBe(0);
     expect(system.exit.mock.calls.length).toBe(0);
     expect(system.add.mock.calls.length).toBe(0);
     expect(system.remove.mock.calls.length).toBe(0);
+
+    engine.addComponentToEntity(new MockComponent(), entity);
+    engine.removeComponentFromEntityOfType(MockComponent.type, entity);
+
+    expect(engine.hasComponentOnEntityOfType('foo', entity)).toBe(false);
+    expect(engine.hasComponentOnEntityOfType(MockComponent.type, entity)).toBe(
+      false,
+    );
+
+    expect(engine.getComponentOnEntityOfType(MockComponent.type, entity)).toBe(
+      undefined,
+    );
 
     new Array(10).fill(null).forEach(() => {
       engine.update(1);
@@ -224,18 +228,18 @@ test('inactivate system', () => {
   const eventBus = new MockEventBus();
   const engine = new Engine([MockComponent.type], [MockSystem], eventBus);
 
-  expect(engine.isSystemOfTypeActive(MockSystem.type)).toBe(true);
-
-  engine.inactivateSystemOfType(MockSystem.type);
-
-  expect(engine.isSystemOfTypeActive(MockSystem.type)).toBe(false);
-
   const system = engine.getSystemOfType(MockSystem.type) as
     | MockSystem
     | undefined;
 
   expect(system).not.toBe(undefined);
   if (system !== undefined) {
+    expect(system.isActive).toBe(true);
+
+    engine.inactivateSystemOfType(MockSystem.type);
+
+    expect(system.isActive).toBe(false);
+
     new Array(10).fill(null).forEach(() => {
       engine.update(1);
     });
@@ -252,19 +256,19 @@ test('activate system', () => {
   const eventBus = new MockEventBus();
   const engine = new Engine([MockComponent.type], [MockSystem], eventBus);
 
-  expect(engine.isSystemOfTypeActive(MockSystem.type)).toBe(true);
-
-  engine.inactivateSystemOfType(MockSystem.type);
-  engine.activateSystemOfType(MockSystem.type);
-
-  expect(engine.isSystemOfTypeActive(MockSystem.type)).toBe(true);
-
   const system = engine.getSystemOfType(MockSystem.type) as
     | MockSystem
     | undefined;
 
   expect(system).not.toBe(undefined);
   if (system !== undefined) {
+    expect(system.isActive).toBe(true);
+
+    engine.inactivateSystemOfType(MockSystem.type);
+    engine.activateSystemOfType(MockSystem.type);
+
+    expect(system.isActive).toBe(true);
+
     new Array(10).fill(null).forEach(() => {
       engine.update(1);
     });
