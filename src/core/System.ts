@@ -1,3 +1,4 @@
+import { Entity } from './Entity';
 import { EntityHandle } from './EntityHandle';
 import { EventBus } from './EventBus';
 
@@ -18,8 +19,13 @@ abstract class System {
 
   abstract get requiredComponentTypes(): Array<string>;
 
-  constructor(createEntity: () => EntityHandle, eventBus: EventBus) {
-    this._isActive = true;
+  constructor(
+    createEntity: (
+      parent: Entity | null,
+      name?: string | undefined,
+    ) => EntityHandle,
+    eventBus: EventBus,
+  ) {
     this._createEntity = createEntity;
     this._eventBus = eventBus;
     this._eventHandlerIds = [];
@@ -33,63 +39,44 @@ abstract class System {
   remove(entity: EntityHandle): void {}
 
   enter(): void {}
+
+  exit(): void {}
   /* eslint-enable */
 
-  exit(): void {
-    this._eventHandlerIds.forEach(handlerId => {
-      this.offEventHandler(handlerId);
-    });
-  }
-
-  get isActive(): boolean {
-    return this._isActive;
-  }
-
-  set isActive(isActive: boolean) {
-    this._isActive = isActive;
-  }
-
-  protected createEntity(): EntityHandle {
-    return this._createEntity();
+  protected createEntity(
+    parent: Entity | null,
+    name?: string | undefined,
+  ): EntityHandle {
+    return this._createEntity(parent, name);
   }
 
   protected onEvent(
     event: string,
     handler: (...args: Array<any>) => void,
   ): string {
-    const handlerId = this._eventBus.on(event, (...args: Array<any>) => {
-      if (this._isActive) {
-        handler(...args);
-      }
-    });
+    const handlerId = this._eventBus.on(event, handler);
     this._eventHandlerIds = [...this._eventHandlerIds, handlerId];
     return handlerId;
-  }
-
-  protected onceEvent(
-    event: string,
-    handler: (...args: Array<any>) => void,
-  ): string {
-    return this._eventBus.once(event, (...args: Array<any>) => {
-      if (this._isActive) {
-        handler(...args);
-      }
-    });
   }
 
   protected offEventHandler(handlerId: string): void {
     this._eventBus.off(handlerId);
   }
 
-  protected emitEvent(event: string, ...args: Array<any>): void {
-    if (this._isActive) {
-      this._eventBus.emit(event, ...args);
-    }
+  protected offAllEventHandlers(): void {
+    this._eventHandlerIds.forEach(handlerId => {
+      this.offEventHandler(handlerId);
+    });
   }
 
-  private _isActive: boolean;
+  protected emitEvent(event: string, ...args: Array<any>): void {
+    this._eventBus.emit(event, ...args);
+  }
 
-  private _createEntity: () => EntityHandle;
+  private _createEntity: (
+    parent: Entity | null,
+    name?: string | undefined,
+  ) => EntityHandle;
 
   private _eventBus: EventBus;
 
