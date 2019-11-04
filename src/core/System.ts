@@ -20,10 +20,7 @@ abstract class System {
   abstract get requiredComponentTypes(): Array<string>;
 
   constructor(
-    createEntity: (
-      parent: Entity | null,
-      name?: string | undefined,
-    ) => EntityHandle,
+    createEntity: (parent: Entity | null, name?: string) => EntityHandle,
     eventBus: EventBus,
   ) {
     this._createEntity = createEntity;
@@ -38,15 +35,12 @@ abstract class System {
 
   remove(entity: EntityHandle): void {}
 
-  enter(): void {}
+  activate(): void {}
 
-  exit(): void {}
+  inactivate(): void {}
   /* eslint-enable */
 
-  protected createEntity(
-    parent: Entity | null,
-    name?: string | undefined,
-  ): EntityHandle {
+  protected createEntity(parent: Entity | null, name?: string): EntityHandle {
     return this._createEntity(parent, name);
   }
 
@@ -73,10 +67,7 @@ abstract class System {
     this._eventBus.emit(event, ...args);
   }
 
-  private _createEntity: (
-    parent: Entity | null,
-    name?: string | undefined,
-  ) => EntityHandle;
+  private _createEntity: (parent: Entity | null, name?: string) => EntityHandle;
 
   private _eventBus: EventBus;
 

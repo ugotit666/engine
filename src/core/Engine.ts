@@ -9,303 +9,130 @@ import { EventBus } from './EventBus';
 
 interface SystemCtor {
   new (
-    createEntity: (
-      parent: Entity | null,
-      name?: string | undefined,
-    ) => EntityHandle,
+    createEntity: (parent: Entity | null, name?: string) => EntityHandle,
     eventBus: EventBus,
     ...args: Array<any>
   ): System;
-  type: string;
-  requiredComponentTypes: Array<string>;
+  readonly type: string;
+  readonly requiredComponentTypes: Array<string>;
 }
 
 class Engine {
   constructor(
-    componentTypes: Array<string>,
-    systemCtorArgsPairsInOrder: Array<[SystemCtor, Array<any>]>,
+    componentTypes: Set<string>,
+    systemCtorArgsPairsByTypeInOrder: Map<string, [SystemCtor, Array<any>]>,
     eventBus: EventBus,
   ) {
-    ((): void => {
-      const set: Set<string> = new Set();
-      componentTypes.forEach(type => {
-        if (set.has(type)) {
-          throw new Error(`Component type: ${type} duplicates`);
-        }
-        set.add(type);
-      });
-      set.clear();
-      systemCtorArgsPairsInOrder.forEach(([Ctor]) => {
-        if (set.has(Ctor.type)) {
-          throw new Error(`System type: ${Ctor.type} duplicates`);
-        }
-        set.add(Ctor.type);
-      });
-    })();
     this._activeEntities = new Set();
     this._inactiveEntities = new Set();
+
+    this._toActivateEntities = new Set();
+    this._toInactivateEntities = new Set();
     this._toDestroyEntities = new Set();
+
     this._signatureByEntity = new Map();
     this._nameByEntity = new Map();
     this._parentByEntity = new Map();
     this._childrenByNameByEntity = new Map();
+
     this._toAddComponentByTypeByEntity = new Map();
     this._toRemoveComponentTypesByEntity = new Map();
+    this._toActivateComponentTypesByEntity = new Map();
+    this._toInactivateComponentTypesByEntity = new Map();
+
     this._eligibleSystemTypesByEntity = new Map();
+
     this._rootEntity = this.createEntity(null);
-    this._componentMgrByType = new Map();
-    componentTypes.forEach(type => {
-      this._componentMgrByType.set(type, new ComponentManager());
-    });
-    this._componentFlagByType = new Map();
-    componentTypes.forEach(type => {
-      this._componentFlagByType.set(
-        type,
-        this._computeComponentFlagByType(type),
-      );
-    });
-    this._systemOrderByType = new Map();
-    this._activeSystemsInOrder = systemCtorArgsPairsInOrder.map(
-      ([Ctor, args], idx) => {
+
+    this._componentMgrByType = new Map(
+      [...componentTypes].map(type => [type, new ComponentManager()]),
+    );
+    this._componentFlagByType = new Map(
+      [...componentTypes].map((type, idx) => [type, 1 << idx]),
+    );
+
+    const systemsInOrder = [...systemCtorArgsPairsByTypeInOrder].map(
+      ([_, [Ctor, args]]) => {
         const system = new Ctor(
-          (parent: Entity | null, name?: string | undefined): EntityHandle => {
+          (parent: Entity | null, name?: string): EntityHandle => {
             return new EntityHandle(this.createEntity(parent, name), this);
           },
           eventBus,
           ...args,
         );
-        this._systemOrderByType.set(system.type, idx);
         return system;
       },
     );
-    this._inactiveSystems = [];
-    this._systemSignatureByType = new Map();
-    this._activeSystemsInOrder.forEach(system => {
-      this._systemSignatureByType.set(
+
+    this._systemByType = new Map(
+      systemsInOrder.map(system => [system.type, system]),
+    );
+
+    this._activeSystemTypesInOrder = [];
+    this._inactiveSystemTypes = new Set(
+      systemsInOrder.map(system => system.type),
+    );
+
+    this._toActivateSystemTypes = new Set(
+      systemsInOrder.map(system => system.type),
+    );
+    this._toInactivateSystemTypes = new Set();
+
+    this._systemOrderByType = new Map(
+      systemsInOrder.map((system, idx) => [system.type, idx]),
+    );
+    this._systemSignatureByType = new Map(
+      systemsInOrder.map(system => [
         system.type,
         this._computeSystemSignatureByRequiredComponentTypes(
           system.requiredComponentTypes,
         ),
-      );
-    });
-    this._toEnterSystemsInOrder = [...this._activeSystemsInOrder];
-    this._toExitSystemsInOrder = [];
-    this._toUpdateEntitiesBySystemType = new Map();
-    this._activeSystemsInOrder.forEach(system => {
-      this._toUpdateEntitiesBySystemType.set(system.type, new Set());
-    });
-    this._toAddEntitiesBySystemType = new Map();
-    this._activeSystemsInOrder.forEach(system => {
-      this._toAddEntitiesBySystemType.set(system.type, new Set());
-    });
-    this._toRemoveEntitiesBySystemType = new Map();
-    this._activeSystemsInOrder.forEach(system => {
-      this._toRemoveEntitiesBySystemType.set(system.type, new Set());
-    });
+      ]),
+    );
+
+    this._toUpdateEntitiesBySystemType = new Map(
+      systemsInOrder.map(system => [system.type, new Set()]),
+    );
+    this._toAddEntitiesBySystemType = new Map(
+      systemsInOrder.map(system => [system.type, new Set()]),
+    );
+    this._toRemoveEntitiesBySystemType = new Map(
+      systemsInOrder.map(system => [system.type, new Set()]),
+    );
   }
 
   update(dt: number): void {
-    this._toEnterSystemsInOrder.forEach(system => {
-      system.enter();
-    });
-    this._toEnterSystemsInOrder = [];
-
-    this._toAddComponentByTypeByEntity.forEach((componentByType, entity) => {
-      componentByType.forEach(component => {
-        const componentMgr = this._componentMgrByType.get(component.type);
-        if (componentMgr === undefined) {
-          throw new Error(
-            `Component manager with type: ${component.type} does not exist`,
-          );
-        }
-        componentMgr.addComponentByEntity(component, entity);
-        const signature = this._signatureByEntity.get(entity);
-        if (signature === undefined) {
-          throw new Error(`Signature of entity: ${entity} does not exist`);
-        }
-        const componentFlag = this._componentFlagByType.get(component.type);
-        if (componentFlag === undefined) {
-          throw new Error(
-            `Flag of component with type: ${component.type} does not exist`,
-          );
-        }
-        const newSignature = signature | componentFlag;
-        this._signatureByEntity.set(entity, newSignature);
-      });
-    });
-
-    this._toAddComponentByTypeByEntity.forEach((componentByType, entity) => {
-      const eligibleSystemTypes = this._eligibleSystemTypesByEntity.get(entity);
-      if (eligibleSystemTypes === undefined) {
-        throw new Error(
-          `Eligible system types of entity: ${entity} does not exist`,
-        );
-      }
-      this._activeSystemsInOrder.forEach(system => {
-        if (eligibleSystemTypes.has(system.type)) {
-          return;
-        }
-        if (this._isEntityEligibleForSystem(entity, system)) {
-          eligibleSystemTypes.add(system.type);
-          const toAddEntities = this._toAddEntitiesBySystemType.get(
-            system.type,
-          );
-          if (toAddEntities === undefined) {
-            throw new Error(
-              `To-add entities of system with type: ${system.type} does not exist`,
-            );
-          }
-          toAddEntities.add(entity);
-        }
-      });
-      componentByType.clear();
-    });
-
-    this._activeSystemsInOrder.forEach(system => {
-      const toAddEntities = this._toAddEntitiesBySystemType.get(system.type);
-      if (toAddEntities === undefined) {
-        throw new Error(
-          `To-add entities of system with type: ${system.type} does not exist`,
-        );
-      }
-      toAddEntities.forEach(entity => {
-        system.add(new EntityHandle(entity, this));
-      });
-      const toUpdateEntities = this._toUpdateEntitiesBySystemType.get(
-        system.type,
-      );
-      if (toUpdateEntities === undefined) {
-        throw new Error(
-          `To-update entities of system with type: ${system.type} does not exist`,
-        );
-      }
-      toAddEntities.forEach(entity => {
-        toUpdateEntities.add(entity);
-      });
-      this._toUpdateEntitiesBySystemType.set(system.type, toUpdateEntities);
-      toAddEntities.clear();
-    });
-
-    this._activeSystemsInOrder.forEach(system => {
-      const toUpdateEntities = this._toUpdateEntitiesBySystemType.get(
-        system.type,
-      );
-      if (toUpdateEntities === undefined) {
-        throw new Error(
-          `To-update entities of system with type: ${system.type} does not exist`,
-        );
-      }
-      toUpdateEntities.forEach(entity => {
-        system.update(new EntityHandle(entity, this), dt);
-      });
-    });
-
-    this._toDestroyEntities.forEach(entity => {
-      this._componentMgrByType.forEach((_, type) => {
-        if (this.hasComponentOnEntityOfType(type, entity)) {
-          this.removeComponentFromEntityOfType(type, entity);
-        }
-      });
-    });
-
-    this._toRemoveComponentTypesByEntity.forEach((componentTypes, entity) => {
-      componentTypes.forEach(type => {
-        const signature = this._signatureByEntity.get(entity);
-        if (signature === undefined) {
-          throw new Error(`Signature of entity: ${entity} does not exist`);
-        }
-        const componentFlag = this._componentFlagByType.get(type);
-        if (componentFlag === undefined) {
-          throw new Error(
-            `Flag of component with type: ${type} does not exist`,
-          );
-        }
-        const newSignature = signature ^ componentFlag;
-        this._signatureByEntity.set(entity, newSignature);
-      });
-      const eligibleSystemTypes = this._eligibleSystemTypesByEntity.get(entity);
-      if (eligibleSystemTypes === undefined) {
-        throw new Error(
-          `Eligible system types of entity: ${entity} does not exist`,
-        );
-      }
-      this._activeSystemsInOrder.forEach(system => {
-        if (!eligibleSystemTypes.has(system.type)) {
-          return;
-        }
-        if (!this._isEntityEligibleForSystem(entity, system)) {
-          eligibleSystemTypes.delete(system.type);
-          const toRemoveEntities = this._toRemoveEntitiesBySystemType.get(
-            system.type,
-          );
-          if (toRemoveEntities === undefined) {
-            throw new Error(
-              `To-remove entities of system with type: ${system.type} does not exist`,
-            );
-          }
-          toRemoveEntities.add(entity);
-        }
-      });
-    });
-
-    this._activeSystemsInOrder.forEach(system => {
-      const toRemoveEntities = this._toRemoveEntitiesBySystemType.get(
-        system.type,
-      );
-      if (toRemoveEntities === undefined) {
-        throw new Error(
-          `To-remove entities of system with type: ${system.type} does not exist`,
-        );
-      }
-      toRemoveEntities.forEach(entity => {
-        system.remove(new EntityHandle(entity, this));
-      });
-      const toUpdateEntities = this._toUpdateEntitiesBySystemType.get(
-        system.type,
-      );
-      if (toUpdateEntities === undefined) {
-        throw new Error(
-          `To-update entities of system with type: ${system.type} does not exist`,
-        );
-      }
-      toRemoveEntities.forEach(entity => {
-        toUpdateEntities.delete(entity);
-      });
-      this._toUpdateEntitiesBySystemType.set(system.type, toUpdateEntities);
-      toRemoveEntities.clear();
-    });
-
-    this._toRemoveComponentTypesByEntity.forEach((componentTypes, entity) => {
-      componentTypes.forEach(type => {
-        const componentMgr = this._componentMgrByType.get(type);
-        if (componentMgr === undefined) {
-          throw new Error(
-            `Component manager with type: ${type} does not exist`,
-          );
-        }
-        componentMgr.removeComponentByEntity(entity);
-      });
-      componentTypes.clear();
-    });
-
-    this._toExitSystemsInOrder.forEach(system => {
-      system.exit();
-    });
-    this._toExitSystemsInOrder = [];
-
-    this._toDestroyEntities.forEach(entity => {
-      this._signatureByEntity.delete(entity);
-      this._nameByEntity.delete(entity);
-      this._parentByEntity.delete(entity);
-      this._childrenByNameByEntity.delete(entity);
-      this._toAddComponentByTypeByEntity.delete(entity);
-      this._toRemoveComponentTypesByEntity.delete(entity);
-      this._eligibleSystemTypesByEntity.delete(entity);
-      if (!this._activeEntities.delete(entity)) {
-        this._inactiveEntities.delete(entity);
-      }
-    });
-    this._toDestroyEntities.clear();
+    // // this._enterSystems();
+    // this._addComponents();
+    // this._activateComponents();
+    // this._addEntities();
+    // this._updateEntities(dt);
+    // this._toDestroyEntities.forEach(entity => {
+    //   this.removeAllComponentsFromEntity(entity);
+    // });
+    // this._inactivateComponents();
+    // this._removeEntities();
+    // this._removeComponents();
+    // // this._exitSystems();
+    // this._toDestroyEntities.forEach(entity => {
+    //   this._signatureByEntity.delete(entity);
+    //   this._nameByEntity.delete(entity);
+    //   this._parentByEntity.delete(entity);
+    //   this._childrenByNameByEntity.delete(entity);
+    //   this._toAddComponentByTypeByEntity.delete(entity);
+    //   this._toRemoveComponentTypesByEntity.delete(entity);
+    //   this._eligibleSystemTypesByEntity.delete(entity);
+    //   if (!this._activeEntities.delete(entity)) {
+    //     this._inactiveEntities.delete(entity);
+    //   }
+    // });
+    // this._toAddComponentByTypeByEntity.forEach(componentByType => {
+    //   componentByType.clear();
+    // });
+    // this._toRemoveComponentTypesByEntity.forEach(componentTypes => {
+    //   componentTypes.clear();
+    // });
+    // this._toDestroyEntities.clear();
   }
 
   hasEntity(entity: Entity): boolean {
@@ -315,9 +142,7 @@ class Engine {
   }
 
   isEntityActive(entity: Entity): boolean {
-    return (
-      this._activeEntities.has(entity) && !this._inactiveEntities.has(entity)
-    );
+    return this._activeEntities.has(entity);
   }
 
   createEntity(
@@ -325,15 +150,23 @@ class Engine {
     name?: string,
   ): Entity {
     const entity = uuidv4();
-    this._activeEntities.add(entity);
+
     this._signatureByEntity.set(entity, 0);
     this._nameByEntity.set(entity, name === undefined ? entity : name);
+    this._parentByEntity.set(entity, null);
     this._childrenByNameByEntity.set(entity, new Map());
+
     this._toAddComponentByTypeByEntity.set(entity, new Map());
     this._toRemoveComponentTypesByEntity.set(entity, new Set());
+    this._toActivateComponentTypesByEntity.set(entity, new Set());
+    this._toInactivateComponentTypesByEntity.set(entity, new Set());
+
     this._eligibleSystemTypesByEntity.set(entity, new Set());
-    this._parentByEntity.set(entity, null);
+
+    this._activeEntities.add(entity);
+
     this.setParentOfEntity(parent, entity);
+
     return entity;
   }
 
@@ -345,7 +178,9 @@ class Engine {
     if (childrenByName === undefined) {
       throw new Error(`Children of entity: ${entity} does not exist`);
     }
-    childrenByName.forEach(child => this.destroyEntity(child));
+    childrenByName.forEach(child => {
+      this.destroyEntity(child);
+    });
     this._toDestroyEntities.add(entity);
   }
 
@@ -354,9 +189,17 @@ class Engine {
     if (!this.hasEntity(entity)) {
       throw new Error(`Entity: ${entity} does not exist`);
     }
+    const childrenByName = this._childrenByNameByEntity.get(entity);
+    if (childrenByName === undefined) {
+      throw new Error(`Children of entity: ${entity} does not exist`);
+    }
     if (this._inactiveEntities.delete(entity)) {
       this._activeEntities.add(entity);
     }
+    this._toActivateEntities.add(entity);
+    childrenByName.forEach(child => {
+      this.activateEntity(child);
+    });
   }
 
   // TODO:
@@ -364,8 +207,15 @@ class Engine {
     if (!this.hasEntity(entity)) {
       throw new Error(`Entity: ${entity} does not exist`);
     }
-    if (!this._inactiveEntities.has(entity)) {
-      this._activeEntities.delete(entity);
+    const childrenByName = this._childrenByNameByEntity.get(entity);
+    if (childrenByName === undefined) {
+      throw new Error(`Children of entity: ${entity} does not exist`);
+    }
+    childrenByName.forEach(child => {
+      this.inactivateEntity(child);
+    });
+    this._toInactivateEntities.add(entity);
+    if (this._activeEntities.delete(entity)) {
       this._inactiveEntities.add(entity);
     }
   }
@@ -501,22 +351,27 @@ class Engine {
     toRemoveComponentTypes.add(type);
   }
 
+  removeAllComponentsFromEntity(entity: Entity): void {
+    this._componentMgrByType.forEach((_, type) => {
+      if (this.hasComponentOnEntityOfType(type, entity)) {
+        this.removeComponentFromEntityOfType(type, entity);
+      }
+    });
+  }
+
   hasSystemOfType(systemType: string): boolean {
-    return [...this._activeSystemsInOrder, ...this._inactiveSystems].some(
-      system => system.type === systemType,
-    );
+    return [
+      ...this._activeSystemTypesInOrder,
+      ...this._inactiveSystemTypes,
+    ].includes(systemType);
   }
 
   isSystemActiveOfType(systemType: string): boolean {
-    return this._activeSystemsInOrder.some(
-      system => system.type === systemType,
-    );
+    return this._activeSystemTypesInOrder.includes(systemType);
   }
 
   getSystemOfType(systemType: string): System | undefined {
-    return [...this._activeSystemsInOrder, ...this._inactiveSystems].find(
-      system => system.type === systemType,
-    );
+    return this._systemByType.get(systemType);
   }
 
   // TODO:
@@ -524,8 +379,7 @@ class Engine {
     if (!this.hasSystemOfType(systemType)) {
       throw new Error(`System with type: ${systemType} does not exist`);
     }
-    if (this.isSystemActiveOfType(systemType)) {
-    }
+    this._toActivateSystemTypes.add(systemType);
   }
 
   // TODO:
@@ -533,9 +387,271 @@ class Engine {
     if (!this.hasSystemOfType(systemType)) {
       throw new Error(`System with type: ${systemType} does not exist`);
     }
-    if (!this.isSystemActiveOfType(systemType)) {
-    }
+    this._toInactivateSystemTypes.add(systemType);
   }
+
+  private _updateEntities(dt: number): void {
+    this._activeSystemTypesInOrder.forEach(systemType => {
+      const system = this._systemByType.get(systemType);
+      if (system === undefined) {
+        throw new Error(`System with type: ${systemType} does not exist`);
+      }
+      const toUpdateEntities = this._toUpdateEntitiesBySystemType.get(
+        system.type,
+      );
+      if (toUpdateEntities === undefined) {
+        throw new Error(
+          `To-update entities of system with type: ${system.type} does not exist`,
+        );
+      }
+      toUpdateEntities.forEach(entity => {
+        system.update(new EntityHandle(entity, this), dt);
+      });
+    });
+  }
+
+  private _addEntities(): void {
+    this._activeSystemTypesInOrder.forEach(systemType => {
+      const system = this._systemByType.get(systemType);
+      if (system === undefined) {
+        throw new Error(`System with type: ${systemType} does not exist`);
+      }
+      const toAddEntities = this._toAddEntitiesBySystemType.get(system.type);
+      if (toAddEntities === undefined) {
+        throw new Error(
+          `To-add entities of system with type: ${system.type} does not exist`,
+        );
+      }
+      toAddEntities.forEach(entity => {
+        system.add(new EntityHandle(entity, this));
+      });
+      const toUpdateEntities = this._toUpdateEntitiesBySystemType.get(
+        system.type,
+      );
+      if (toUpdateEntities === undefined) {
+        throw new Error(
+          `To-update entities of system with type: ${system.type} does not exist`,
+        );
+      }
+      toAddEntities.forEach(entity => {
+        toUpdateEntities.add(entity);
+      });
+      this._toUpdateEntitiesBySystemType.set(system.type, toUpdateEntities);
+      toAddEntities.clear();
+    });
+  }
+
+  private _removeEntities(): void {
+    this._activeSystemTypesInOrder.forEach(systemType => {
+      const system = this._systemByType.get(systemType);
+      if (system === undefined) {
+        throw new Error(`System with type: ${systemType} does not exist`);
+      }
+      const toRemoveEntities = this._toRemoveEntitiesBySystemType.get(
+        system.type,
+      );
+      if (toRemoveEntities === undefined) {
+        throw new Error(
+          `To-remove entities of system with type: ${system.type} does not exist`,
+        );
+      }
+      toRemoveEntities.forEach(entity => {
+        system.remove(new EntityHandle(entity, this));
+      });
+      const toUpdateEntities = this._toUpdateEntitiesBySystemType.get(
+        system.type,
+      );
+      if (toUpdateEntities === undefined) {
+        throw new Error(
+          `To-update entities of system with type: ${system.type} does not exist`,
+        );
+      }
+      toRemoveEntities.forEach(entity => {
+        toUpdateEntities.delete(entity);
+      });
+      this._toUpdateEntitiesBySystemType.set(system.type, toUpdateEntities);
+      toRemoveEntities.clear();
+    });
+  }
+
+  private _addComponents(): void {
+    this._toAddComponentByTypeByEntity.forEach((componentByType, entity) => {
+      componentByType.forEach(component => {
+        const componentMgr = this._componentMgrByType.get(component.type);
+        if (componentMgr === undefined) {
+          throw new Error(
+            `Component manager with type: ${component.type} does not exist`,
+          );
+        }
+        componentMgr.addComponentByEntity(component, entity);
+      });
+    });
+  }
+
+  private _removeComponents(): void {
+    this._toRemoveComponentTypesByEntity.forEach((componentTypes, entity) => {
+      componentTypes.forEach(type => {
+        const componentMgr = this._componentMgrByType.get(type);
+        if (componentMgr === undefined) {
+          throw new Error(
+            `Component manager with type: ${type} does not exist`,
+          );
+        }
+        componentMgr.removeComponentByEntity(entity);
+      });
+    });
+  }
+
+  private _activateComponents(): void {
+    this._toAddComponentByTypeByEntity.forEach((componentByType, entity) => {
+      componentByType.forEach(component => {
+        const signature = this._signatureByEntity.get(entity);
+        if (signature === undefined) {
+          throw new Error(`Signature of entity: ${entity} does not exist`);
+        }
+        const componentFlag = this._componentFlagByType.get(component.type);
+        if (componentFlag === undefined) {
+          throw new Error(
+            `Flag of component with type: ${component.type} does not exist`,
+          );
+        }
+        const newSignature = signature | componentFlag;
+        this._signatureByEntity.set(entity, newSignature);
+      });
+      const eligibleSystemTypes = this._eligibleSystemTypesByEntity.get(entity);
+      if (eligibleSystemTypes === undefined) {
+        throw new Error(
+          `Eligible system types of entity: ${entity} does not exist`,
+        );
+      }
+      this._activeSystemTypesInOrder.forEach(systemType => {
+        const system = this._systemByType.get(systemType);
+        if (system === undefined) {
+          throw new Error(`System with type: ${systemType} does not exist`);
+        }
+        if (eligibleSystemTypes.has(system.type)) {
+          return;
+        }
+        if (this._isEntityEligibleForSystem(entity, system)) {
+          eligibleSystemTypes.add(system.type);
+          const toAddEntities = this._toAddEntitiesBySystemType.get(
+            system.type,
+          );
+          if (toAddEntities === undefined) {
+            throw new Error(
+              `To-add entities of system with type: ${system.type} does not exist`,
+            );
+          }
+          toAddEntities.add(entity);
+        }
+      });
+    });
+  }
+
+  private _inactivateComponents(): void {
+    this._toRemoveComponentTypesByEntity.forEach((componentTypes, entity) => {
+      componentTypes.forEach(type => {
+        const signature = this._signatureByEntity.get(entity);
+        if (signature === undefined) {
+          throw new Error(`Signature of entity: ${entity} does not exist`);
+        }
+        const componentFlag = this._componentFlagByType.get(type);
+        if (componentFlag === undefined) {
+          throw new Error(
+            `Flag of component with type: ${type} does not exist`,
+          );
+        }
+        const newSignature = signature ^ componentFlag;
+        this._signatureByEntity.set(entity, newSignature);
+      });
+      const eligibleSystemTypes = this._eligibleSystemTypesByEntity.get(entity);
+      if (eligibleSystemTypes === undefined) {
+        throw new Error(
+          `Eligible system types of entity: ${entity} does not exist`,
+        );
+      }
+      this._activeSystemTypesInOrder.forEach(systemType => {
+        const system = this._systemByType.get(systemType);
+        if (system === undefined) {
+          throw new Error(`System with type: ${systemType} does not exist`);
+        }
+        if (!eligibleSystemTypes.has(system.type)) {
+          return;
+        }
+        if (!this._isEntityEligibleForSystem(entity, system)) {
+          eligibleSystemTypes.delete(system.type);
+          const toRemoveEntities = this._toRemoveEntitiesBySystemType.get(
+            system.type,
+          );
+          if (toRemoveEntities === undefined) {
+            throw new Error(
+              `To-remove entities of system with type: ${system.type} does not exist`,
+            );
+          }
+          toRemoveEntities.add(entity);
+        }
+      });
+    });
+  }
+
+  // private _enterSystems(): void {
+  //   this._toEnterSystemTypesInOrder.forEach(type => {
+  //     const system = this._systemByType.get(type);
+  //     if (system === undefined) {
+  //       throw new Error(`System with type: ${type} does not exist`);
+  //     }
+  //     system.enter();
+  //   });
+
+  //   this._toEnterSystemTypesInOrder.forEach(toEnterSystemType => {
+  //     const toEnterSystemOrder = this._systemOrderByType.get(toEnterSystemType);
+  //     if (toEnterSystemOrder === undefined) {
+  //       throw new Error(
+  //         `Order of system with type: ${toEnterSystemType} does not exist`,
+  //       );
+  //     }
+  //     let targetIdx = 0;
+  //     if (this.activateSystemOfType.length !== 0) {
+  //       targetIdx = this._activeSystemTypesInOrder.findIndex(type => {
+  //         const activeSystemOrder = this._systemOrderByType.get(type);
+  //         if (activeSystemOrder === undefined) {
+  //           throw new Error(
+  //             `Order of system with type: ${type} does not exist`,
+  //           );
+  //         }
+  //         return toEnterSystemOrder < activeSystemOrder;
+  //       });
+  //       if (targetIdx === -1) {
+  //         targetIdx = this._activeSystemTypesInOrder.length;
+  //       }
+  //     }
+  //     this._activeSystemTypesInOrder.splice(targetIdx, 0, toEnterSystemType);
+  //   });
+
+  //   this._toEnterSystemTypesInOrder = [];
+  // }
+
+  // private _exitSystems(): void {
+  //   this._toExitSystemTypesInOrder.forEach(type => {
+  //     const system = this._systemByType.get(type);
+  //     if (system === undefined) {
+  //       throw new Error(`System with type: ${type} does not exist`);
+  //     }
+  //     system.exit();
+  //   });
+
+  //   this._toExitSystemTypesInOrder.forEach(type => {
+  //     const targetIdx = this._activeSystemTypesInOrder.findIndex(
+  //       t => t === type,
+  //     );
+  //     if (targetIdx === -1) {
+  //       throw new Error(`System with type: ${type} does not exist`);
+  //     }
+  //     this._activeSystemTypesInOrder.splice(targetIdx, 1);
+  //   });
+
+  //   this._toExitSystemTypesInOrder = [];
+  // }
 
   private _isEntityEligibleForSystem(entity: Entity, system: System): boolean {
     const signature = this._signatureByEntity.get(entity);
@@ -549,26 +665,6 @@ class Engine {
       );
     }
     return (systemSignature & signature) === systemSignature;
-  }
-
-  private _computeComponentFlagByType(type: string): number {
-    let flag = 0;
-    let idx = 0;
-    this._componentMgrByType.forEach((_, t) => {
-      if (t === type) {
-        flag = 1 << idx;
-      }
-      idx += 1;
-    });
-    if (flag === 0) {
-      throw new Error(`Failed to compute component flag`);
-    }
-    this._componentFlagByType.forEach(f => {
-      if (f === flag) {
-        throw new Error(`Duplicate component flags`);
-      }
-    });
-    return flag;
   }
 
   private _computeSystemSignatureByRequiredComponentTypes(
@@ -589,6 +685,10 @@ class Engine {
 
   private _inactiveEntities: Set<Entity>;
 
+  private _toActivateEntities: Set<Entity>;
+
+  private _toInactivateEntities: Set<Entity>;
+
   private _toDestroyEntities: Set<Entity>;
 
   private _signatureByEntity: Map<Entity, number>;
@@ -603,6 +703,10 @@ class Engine {
 
   private _toRemoveComponentTypesByEntity: Map<Entity, Set<string>>;
 
+  private _toActivateComponentTypesByEntity: Map<Entity, Set<string>>;
+
+  private _toInactivateComponentTypesByEntity: Map<Entity, Set<string>>;
+
   private _eligibleSystemTypesByEntity: Map<Entity, Set<string>>;
 
   private _rootEntity: Entity;
@@ -611,17 +715,19 @@ class Engine {
 
   private _componentFlagByType: Map<string, number>;
 
-  private _activeSystemsInOrder: Array<System>;
+  private _activeSystemTypesInOrder: Array<string>;
 
-  private _inactiveSystems: Array<System>;
+  private _inactiveSystemTypes: Set<string>;
+
+  private _toActivateSystemTypes: Set<string>;
+
+  private _toInactivateSystemTypes: Set<string>;
+
+  private _systemByType: Map<string, System>;
 
   private _systemOrderByType: Map<string, number>;
 
   private _systemSignatureByType: Map<string, number>;
-
-  private _toEnterSystemsInOrder: Array<System>;
-
-  private _toExitSystemsInOrder: Array<System>;
 
   private _toUpdateEntitiesBySystemType: Map<string, Set<Entity>>;
 
