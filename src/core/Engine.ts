@@ -102,37 +102,24 @@ class Engine {
   }
 
   update(dt: number): void {
-    // // this._enterSystems();
-    // this._addComponents();
-    // this._activateComponents();
-    // this._addEntities();
-    // this._updateEntities(dt);
-    // this._toDestroyEntities.forEach(entity => {
-    //   this.removeAllComponentsFromEntity(entity);
-    // });
-    // this._inactivateComponents();
-    // this._removeEntities();
-    // this._removeComponents();
-    // // this._exitSystems();
-    // this._toDestroyEntities.forEach(entity => {
-    //   this._signatureByEntity.delete(entity);
-    //   this._nameByEntity.delete(entity);
-    //   this._parentByEntity.delete(entity);
-    //   this._childrenByNameByEntity.delete(entity);
-    //   this._toAddComponentByTypeByEntity.delete(entity);
-    //   this._toRemoveComponentTypesByEntity.delete(entity);
-    //   this._eligibleSystemTypesByEntity.delete(entity);
-    //   if (!this._activeEntities.delete(entity)) {
-    //     this._inactiveEntities.delete(entity);
-    //   }
-    // });
-    // this._toAddComponentByTypeByEntity.forEach(componentByType => {
-    //   componentByType.clear();
-    // });
-    // this._toRemoveComponentTypesByEntity.forEach(componentTypes => {
-    //   componentTypes.clear();
-    // });
-    // this._toDestroyEntities.clear();
+    // this._enterSystems();
+
+    this._addComponents();
+    this._activateComponents();
+    this._addEntities();
+    this._updateEntities(dt);
+    this._inactivateComponents();
+    this._removeEntities();
+    this._removeComponents();
+
+    // this._exitSystems();
+
+    this._toAddComponentByTypeByEntity.forEach(componentByType => {
+      componentByType.clear();
+    });
+    this._toRemoveComponentTypesByEntity.forEach(componentTypes => {
+      componentTypes.clear();
+    });
   }
 
   hasEntity(entity: Entity): boolean {
@@ -170,14 +157,12 @@ class Engine {
     return entity;
   }
 
+  // TODO:
   destroyEntity(entity: Entity): void {
     if (entity === this._rootEntity) {
       throw new Error('Root entity can NOT be destroyed');
     }
-    const childrenByName = this._childrenByNameByEntity.get(entity);
-    if (childrenByName === undefined) {
-      throw new Error(`Children of entity: ${entity} does not exist`);
-    }
+    const childrenByName = this.getChildrenByNameOfEntity(entity);
     childrenByName.forEach(child => {
       this.destroyEntity(child);
     });
@@ -189,10 +174,7 @@ class Engine {
     if (!this.hasEntity(entity)) {
       throw new Error(`Entity: ${entity} does not exist`);
     }
-    const childrenByName = this._childrenByNameByEntity.get(entity);
-    if (childrenByName === undefined) {
-      throw new Error(`Children of entity: ${entity} does not exist`);
-    }
+    const childrenByName = this.getChildrenByNameOfEntity(entity);
     if (this._inactiveEntities.delete(entity)) {
       this._activeEntities.add(entity);
     }
@@ -207,10 +189,7 @@ class Engine {
     if (!this.hasEntity(entity)) {
       throw new Error(`Entity: ${entity} does not exist`);
     }
-    const childrenByName = this._childrenByNameByEntity.get(entity);
-    if (childrenByName === undefined) {
-      throw new Error(`Children of entity: ${entity} does not exist`);
-    }
+    const childrenByName = this.getChildrenByNameOfEntity(entity);
     childrenByName.forEach(child => {
       this.inactivateEntity(child);
     });
@@ -232,33 +211,20 @@ class Engine {
     return parent;
   }
 
+  getChildrenByNameOfEntity(entity: Entity): Map<string, Entity> {
+    const childrenByName = this._childrenByNameByEntity.get(entity);
+    if (childrenByName === undefined) {
+      throw new Error(`Children of entity: ${entity} do not exist`);
+    }
+    return childrenByName;
+  }
+
   getNameOfEntity(entity: Entity): string {
     const name = this._nameByEntity.get(entity);
     if (name === undefined) {
       throw new Error(`Name of entity: ${entity} does not exist`);
     }
     return name;
-  }
-
-  getChildrenOfEntity(entity: Entity): Array<Entity> {
-    const childrenByName = this._childrenByNameByEntity.get(entity);
-    if (childrenByName === undefined) {
-      throw new Error(`Children of entity: ${entity} does not exist`);
-    }
-    let children: Array<Entity> = [];
-    childrenByName.forEach(child => {
-      children = [...children, child];
-    });
-    return children;
-  }
-
-  getChildOfEntityByName(name: string, entity: Entity): Entity | null {
-    const childrenByName = this._childrenByNameByEntity.get(entity);
-    if (childrenByName === undefined) {
-      throw new Error(`Children of entity: ${entity} does not exist`);
-    }
-    const child = childrenByName.get(name);
-    return child !== undefined ? child : null;
   }
 
   setParentOfEntity(parent: Entity | null, entity: Entity): void {
@@ -268,19 +234,15 @@ class Engine {
     if (!this.hasEntity(entity)) {
       throw new Error(`Entity: ${entity} does not exist`);
     }
+    const name = this.getNameOfEntity(entity);
     const orgParent = this.getParentOfEntity(entity);
-    if (orgParent === undefined) {
-      throw new Error(`Parent of entity: ${entity} does not exist`);
-    }
     if (orgParent !== null) {
-      this.removeChildFromEntity(entity, orgParent);
+      const orgParentChildrenByName = this.getChildrenByNameOfEntity(orgParent);
+      orgParentChildrenByName.delete(name);
+      this._parentByEntity.set(entity, null);
     }
     if (parent !== null) {
-      const name = this.getNameOfEntity(entity);
-      const parentChildrenByName = this._childrenByNameByEntity.get(parent);
-      if (parentChildrenByName === undefined) {
-        throw new Error(`Children of entity: ${parent} does not exist`);
-      }
+      const parentChildrenByName = this.getChildrenByNameOfEntity(parent);
       parentChildrenByName.set(name, entity);
     }
     this._parentByEntity.set(entity, parent);
@@ -291,31 +253,19 @@ class Engine {
   }
 
   removeChildFromEntity(child: Entity, entity: Entity): void {
-    if (!this.hasEntity(child)) {
-      throw new Error(`Entity: ${child} does not exist`);
-    }
-    if (!this.hasEntity(entity)) {
-      throw new Error(`Entity: ${entity} does not exist`);
-    }
     const orgParent = this.getParentOfEntity(child);
     if (orgParent !== entity) {
       throw new Error(
-        `Original parent of the child: ${orgParent} does not match the given entity: ${entity}`,
+        `The given entity: ${entity} is not the parent of the given child: ${child}`,
       );
     }
-    const childName = this.getNameOfEntity(child);
-    const childrenByName = this._childrenByNameByEntity.get(entity);
-    if (childrenByName === undefined) {
-      throw new Error(`Children of entity: ${entity} does not exist`);
-    }
-    childrenByName.delete(childName);
-    this._parentByEntity.set(child, null);
+    this.setParentOfEntity(null, child);
   }
 
   hasComponentOnEntityOfType(type: string, entity: Entity): boolean {
     const componentMgr = this._componentMgrByType.get(type);
     if (componentMgr === undefined) {
-      return false;
+      throw new Error(`Component manager with type: ${type} does not exist`);
     }
     return componentMgr.hasComponentByEntity(entity);
   }
@@ -326,7 +276,7 @@ class Engine {
   ): Component | undefined {
     const componentMgr = this._componentMgrByType.get(type);
     if (componentMgr === undefined) {
-      return undefined;
+      throw new Error(`Component manager with type: ${type} does not exist`);
     }
     return componentMgr.getComponentByEntity(entity);
   }
@@ -349,14 +299,6 @@ class Engine {
       );
     }
     toRemoveComponentTypes.add(type);
-  }
-
-  removeAllComponentsFromEntity(entity: Entity): void {
-    this._componentMgrByType.forEach((_, type) => {
-      if (this.hasComponentOnEntityOfType(type, entity)) {
-        this.removeComponentFromEntityOfType(type, entity);
-      }
-    });
   }
 
   hasSystemOfType(systemType: string): boolean {
@@ -593,65 +535,6 @@ class Engine {
       });
     });
   }
-
-  // private _enterSystems(): void {
-  //   this._toEnterSystemTypesInOrder.forEach(type => {
-  //     const system = this._systemByType.get(type);
-  //     if (system === undefined) {
-  //       throw new Error(`System with type: ${type} does not exist`);
-  //     }
-  //     system.enter();
-  //   });
-
-  //   this._toEnterSystemTypesInOrder.forEach(toEnterSystemType => {
-  //     const toEnterSystemOrder = this._systemOrderByType.get(toEnterSystemType);
-  //     if (toEnterSystemOrder === undefined) {
-  //       throw new Error(
-  //         `Order of system with type: ${toEnterSystemType} does not exist`,
-  //       );
-  //     }
-  //     let targetIdx = 0;
-  //     if (this.activateSystemOfType.length !== 0) {
-  //       targetIdx = this._activeSystemTypesInOrder.findIndex(type => {
-  //         const activeSystemOrder = this._systemOrderByType.get(type);
-  //         if (activeSystemOrder === undefined) {
-  //           throw new Error(
-  //             `Order of system with type: ${type} does not exist`,
-  //           );
-  //         }
-  //         return toEnterSystemOrder < activeSystemOrder;
-  //       });
-  //       if (targetIdx === -1) {
-  //         targetIdx = this._activeSystemTypesInOrder.length;
-  //       }
-  //     }
-  //     this._activeSystemTypesInOrder.splice(targetIdx, 0, toEnterSystemType);
-  //   });
-
-  //   this._toEnterSystemTypesInOrder = [];
-  // }
-
-  // private _exitSystems(): void {
-  //   this._toExitSystemTypesInOrder.forEach(type => {
-  //     const system = this._systemByType.get(type);
-  //     if (system === undefined) {
-  //       throw new Error(`System with type: ${type} does not exist`);
-  //     }
-  //     system.exit();
-  //   });
-
-  //   this._toExitSystemTypesInOrder.forEach(type => {
-  //     const targetIdx = this._activeSystemTypesInOrder.findIndex(
-  //       t => t === type,
-  //     );
-  //     if (targetIdx === -1) {
-  //       throw new Error(`System with type: ${type} does not exist`);
-  //     }
-  //     this._activeSystemTypesInOrder.splice(targetIdx, 1);
-  //   });
-
-  //   this._toExitSystemTypesInOrder = [];
-  // }
 
   private _isEntityEligibleForSystem(entity: Entity, system: System): boolean {
     const signature = this._signatureByEntity.get(entity);
