@@ -216,53 +216,153 @@ describe('Create entity', () => {
   });
 });
 
-// describe('Add component to entity', () => {
-//   test('When add a component to en entity, the life cycle methods of corresponding systems will be called', () => {
-//     const eventBus = new MockEventBus();
-//     const engine = new Engine(
-//       [MockComponent.type],
-//       [[MockSystem, []]],
-//       eventBus,
-//     );
+describe('Set parent of entity', () => {
+  test('', () => {
+    const eventBus = new MockEventBus();
+    const engine = new Engine(
+      new Set([MockComponent1.type, MockComponent2.type]),
+      new Map([
+        [MockSystem1.type, [MockSystem1, []]],
+        [MockSystem2.type, [MockSystem2, []]],
+        [MockSystem3.type, [MockSystem3, []]],
+      ]),
+      eventBus,
+    );
 
-//     const system = engine.getSystemOfType(MockSystem.type) as
-//       | MockSystem
-//       | undefined;
+    const parent = engine.createEntity();
+    const entity = engine.createEntity();
+    engine.setParentOfEntity(parent, entity);
 
-//     expect(system).not.toBe(undefined);
+    expect(engine.getChildrenByNameOfEntity(engine.rootEntity).size).toBe(1);
 
-//     const entity = engine.createEntity();
-//     engine.addComponentToEntity(new MockComponent(), entity);
+    expect(engine.getParentOfEntity(parent)).toBe(engine.rootEntity);
+    expect(engine.getChildrenByNameOfEntity(parent).size).toBe(1);
+    expect(engine.getChildrenByNameOfEntity(parent).get(entity)).toBe(entity);
 
-//     if (system !== undefined) {
-//       expect(system.update.mock.calls.length).toBe(0);
-//       expect(system.enter.mock.calls.length).toBe(0);
-//       expect(system.exit.mock.calls.length).toBe(0);
-//       expect(system.add.mock.calls.length).toBe(0);
-//       expect(system.remove.mock.calls.length).toBe(0);
+    expect(engine.getParentOfEntity(entity)).toBe(parent);
+    expect(engine.getChildrenByNameOfEntity(entity).size).toBe(0);
+  });
 
-//       new Array(10).fill(null).forEach(() => {
-//         engine.update(1);
-//       });
+  test('When the given parent is `null`, a dangling hierarchy is created', () => {
+    const eventBus = new MockEventBus();
+    const engine = new Engine(
+      new Set([MockComponent1.type, MockComponent2.type]),
+      new Map([
+        [MockSystem1.type, [MockSystem1, []]],
+        [MockSystem2.type, [MockSystem2, []]],
+        [MockSystem3.type, [MockSystem3, []]],
+      ]),
+      eventBus,
+    );
 
-//       expect(
-//         engine.hasComponentOnEntityOfType(MockComponent.type, entity),
-//       ).toBe(true);
+    const parent = engine.createEntity();
+    const entity = engine.createEntity();
+    engine.setParentOfEntity(null, entity);
 
-//       const mockComponent = engine.getComponentOnEntityOfType(
-//         MockComponent.type,
-//         entity,
-//       );
-//       expect(mockComponent).not.toBe(undefined);
-//       if (mockComponent !== undefined) {
-//         expect(mockComponent.type).toBe(MockComponent.type);
-//       }
+    expect(engine.getChildrenByNameOfEntity(engine.rootEntity).size).toBe(1);
 
-//       expect(system.update.mock.calls.length).toBe(10);
-//       expect(system.enter.mock.calls.length).toBe(1);
-//       expect(system.exit.mock.calls.length).toBe(0);
-//       expect(system.add.mock.calls.length).toBe(1);
-//       expect(system.remove.mock.calls.length).toBe(0);
-//     }
-//   });
-// });
+    expect(engine.getParentOfEntity(parent)).toBe(engine.rootEntity);
+    expect(engine.getChildrenByNameOfEntity(parent).size).toBe(0);
+
+    expect(engine.getParentOfEntity(entity)).toBe(null);
+    expect(engine.getChildrenByNameOfEntity(entity).size).toBe(0);
+  });
+});
+
+describe('Add child to entity', () => {
+  test('', () => {
+    const eventBus = new MockEventBus();
+    const engine = new Engine(
+      new Set([MockComponent1.type, MockComponent2.type]),
+      new Map([
+        [MockSystem1.type, [MockSystem1, []]],
+        [MockSystem2.type, [MockSystem2, []]],
+        [MockSystem3.type, [MockSystem3, []]],
+      ]),
+      eventBus,
+    );
+
+    const entity = engine.createEntity();
+    const child = engine.createEntity();
+    engine.addChildToEntity(child, entity);
+
+    expect(engine.getChildrenByNameOfEntity(engine.rootEntity).size).toBe(1);
+
+    expect(engine.getParentOfEntity(entity)).toBe(engine.rootEntity);
+    expect(engine.getChildrenByNameOfEntity(entity).size).toBe(1);
+
+    expect(engine.getParentOfEntity(child)).toBe(entity);
+    expect(engine.getChildrenByNameOfEntity(child).size).toBe(0);
+  });
+});
+
+describe('Remove child from entity', () => {
+  test('', () => {
+    const eventBus = new MockEventBus();
+    const engine = new Engine(
+      new Set([MockComponent1.type, MockComponent2.type]),
+      new Map([
+        [MockSystem1.type, [MockSystem1, []]],
+        [MockSystem2.type, [MockSystem2, []]],
+        [MockSystem3.type, [MockSystem3, []]],
+      ]),
+      eventBus,
+    );
+
+    const entity = engine.createEntity();
+    const child = engine.createEntity(entity);
+    engine.removeChildFromEntity(child, entity);
+
+    expect(engine.getChildrenByNameOfEntity(engine.rootEntity).size).toBe(1);
+
+    expect(engine.getParentOfEntity(entity)).toBe(engine.rootEntity);
+    expect(engine.getChildrenByNameOfEntity(entity).size).toBe(0);
+
+    expect(engine.getParentOfEntity(child)).toBe(null);
+    expect(engine.getChildrenByNameOfEntity(child).size).toBe(0);
+  });
+
+  test('When the given child is not the child of the given entity, an error is throwed', () => {
+    const eventBus = new MockEventBus();
+    const engine = new Engine(
+      new Set([MockComponent1.type, MockComponent2.type]),
+      new Map([
+        [MockSystem1.type, [MockSystem1, []]],
+        [MockSystem2.type, [MockSystem2, []]],
+        [MockSystem3.type, [MockSystem3, []]],
+      ]),
+      eventBus,
+    );
+
+    const entity = engine.createEntity();
+    const child = engine.createEntity(entity);
+
+    expect(() => {
+      engine.removeChildFromEntity(entity, child);
+    }).toThrow();
+  });
+});
+
+describe('Add component to entity', () => {
+  test('', () => {
+    const eventBus = new MockEventBus();
+    const engine = new Engine(
+      new Set([MockComponent1.type, MockComponent2.type]),
+      new Map([
+        [MockSystem1.type, [MockSystem1, []]],
+        [MockSystem2.type, [MockSystem2, []]],
+        [MockSystem3.type, [MockSystem3, []]],
+      ]),
+      eventBus,
+    );
+
+    const entity = engine.createEntity();
+    engine.addComponentToEntity(new MockComponent1(), entity);
+
+    engine.update(1);
+
+    expect(engine.hasComponentOfTypeOnEntity(MockComponent1.type, entity)).toBe(
+      true,
+    );
+  });
+});

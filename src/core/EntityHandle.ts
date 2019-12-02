@@ -4,22 +4,16 @@ import { Component } from './Component';
 declare class Engine {
   isEntityActive(entity: Entity): boolean;
 
-  activateEntity(entity: Entity): void;
+  hasComponentOfTypeOnEntity(type: string, entity: Entity): boolean;
 
-  inactivateEntity(entity: Entity): void;
-
-  destroyEntity(entity: Entity): void;
-
-  hasComponentOnEntityOfType(type: string, entity: Entity): boolean;
-
-  getComponentOnEntityOfType(
+  getComponentOfTypeOnEntity(
     type: string,
     entity: Entity,
   ): Component | undefined;
 
   addComponentToEntity(component: Component, entity: Entity): void;
 
-  removeComponentFromEntityOfType(type: string, entity: Entity): void;
+  removeComponentOfTypeFromEntity(type: string, entity: Entity): void;
 }
 
 class EntityHandle {
@@ -32,24 +26,12 @@ class EntityHandle {
     return this._engine.isEntityActive(this._entity);
   }
 
-  activate(): void {
-    this._engine.activateEntity(this._entity);
-  }
-
-  inactivate(): void {
-    this._engine.inactivateEntity(this._entity);
-  }
-
-  destroy(): void {
-    this._engine.destroyEntity(this._entity);
-  }
-
   hasComponentOfType(type: string): boolean {
-    return this._engine.hasComponentOnEntityOfType(type, this._entity);
+    return this._engine.hasComponentOfTypeOnEntity(type, this._entity);
   }
 
   getComponentOfType(type: string): Component | undefined {
-    return this._engine.getComponentOnEntityOfType(type, this._entity);
+    return this._engine.getComponentOfTypeOnEntity(type, this._entity);
   }
 
   addComponent(component: Component): void {
@@ -57,7 +39,7 @@ class EntityHandle {
   }
 
   removeComponentOfType(type: string): void {
-    this._engine.removeComponentFromEntityOfType(type, this._entity);
+    this._engine.removeComponentOfTypeFromEntity(type, this._entity);
   }
 
   private _entity: Entity;
